@@ -3,16 +3,17 @@ import type { ConnectionMode } from '../core/store';
 import type { Anchor } from '../world/World';
 import { looksFor, shirtFor, sourceLabel, STATUS_COLORS, STATUS_LABEL, teamAccent } from '../world/palette';
 import { icon } from './icons';
+import { Chat } from './chat';
 import { REPO_URL } from '../config';
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (html !== undefined) e.innerHTML = html;
   return e;
 }
 
-function esc(s: string) {
+export function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
@@ -47,6 +48,7 @@ export interface HudActions {
   frameAll(): void;
   toggleTheme(): void;
   startDemo(): void;
+  submitChat(prompt: string, onDelta: (chunk: string) => void): Promise<void>;
 }
 
 /** Statuses that mean "this agent is on the clock right now". */
@@ -111,6 +113,7 @@ export class Hud {
   private busyBadge = el('span', 'busy-badge');
   private busyOpen = false;
   private busyKey = '';
+  private chat: Chat;
   private card = el('aside', 'card glass');
   private sheet = el('div', 'sheet-wrap');
   private empty = el('div', 'empty glass');
@@ -124,6 +127,7 @@ export class Hud {
   private mode: ConnectionMode = 'connecting';
 
   constructor(container: HTMLElement, private actions: HudActions) {
+    this.chat = new Chat(actions.submitChat);
     this.root.append(this.tagsLayer, this.bubblesLayer);
 
     // Top bar
@@ -142,6 +146,7 @@ export class Hud {
       return b;
     };
     btn('cornersOut', 'Show everyone (F)', () => actions.frameAll());
+    tools.append(this.chat.button);
     const busyBtn = btn('users', 'Who is working (W)', () => this.toggleBusy());
     busyBtn.append(this.busyBadge);
     this.busyBtn = busyBtn;
@@ -177,7 +182,7 @@ export class Hud {
 
     this.card.setAttribute('aria-live', 'polite');
     this.buildSheet();
-    this.root.append(top, this.demoNote, this.teamsDock, this.busyPanel, this.card, this.empty, hint, this.sheet);
+    this.root.append(top, this.demoNote, this.teamsDock, this.busyPanel, this.chat.rootEl, this.card, this.empty, hint, this.sheet);
     container.append(this.root);
 
     this.bindKeys();
@@ -550,14 +555,16 @@ export class Hud {
 
   private bindKeys() {
     addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'Escape') {
         if (this.sheet.classList.contains('show')) this.closeSheet();
         else if (this.busyOpen) this.closeBusy();
+        else if (this.chat.isOpen) this.chat.toggle(false);
         else this.actions.select(null);
       } else if (e.key === 'f' || e.key === 'F') this.actions.frameAll();
       else if (e.key === 't' || e.key === 'T') this.actions.toggleTheme();
       else if (e.key === 'w' || e.key === 'W') this.toggleBusy();
+      else if (e.key === 'c' || e.key === 'C') this.chat.toggle();
       else if (e.key === ']' || e.key === '[') {
         const ids = Object.values(this.state?.agents || {})
           .sort((a, b) => (this.state!.teams[a.team]?.order ?? 0) - (this.state!.teams[b.team]?.order ?? 0) || a.joinedAt - b.joinedAt)
